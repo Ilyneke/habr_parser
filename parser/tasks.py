@@ -5,56 +5,66 @@ import asyncio
 import aiohttp
 from celery import Celery
 
-from .models import Article
+from .models import Article, Hub
+
+
+semaphore = asyncio.Semaphore(5)
 
 
 app = Celery('habr_parser')
 app.config_from_object('django.conf:settings')
 
 
-async def fetch(session, title: str, url: str, headers: dict) -> dict:
-    async with session.get(url, headers=headers) as response:
-        raw_article = {
-            'title': title,
-            'url': url,
-            'html': await response.text(),
-        }
-        return raw_article
+async def fetch(session, article: dict, headers: dict) -> dict:
+    async with semaphore:
+        async with session.get(article['url'], headers=headers) as response:
+            raw_article = {
+                'hub_id': article['hub_id'],
+                'title': article['title'],
+                'url': article['url'],
+                'html': await response.text(),
+            }
+            return raw_article
 
 
-async def fetch_all(articles_dict: dict, loop, headers):
+async def fetch_all(articles: list, loop, headers):
     async with aiohttp.ClientSession(loop=loop) as session:
         results = await asyncio.gather(
-            *[fetch(session, title, url, headers) for title, url in articles_dict.items()],
+            *[fetch(session, article, headers) for article in articles],
             return_exceptions=True
         )
         return results
 
 
-def parse_main(headers: dict) -> dict:
-    article_dict = {}
-
-    url = f'https://habr.com/ru/articles/'
-
-    req = requests.get(url, headers=headers).text
+def parse_hab(hub: Hub, headers: dict) -> list[dict]:
+    """Возвращает список словарей с ключами: hub_id, title, url"""
+    req = requests.get(url=hub.url, headers=headers).text
 
     soup = BeautifulSoup(req, 'lxml')
     all_hrefs_articles = soup.find_all('a', class_='tm-title__link')  # получаем статьи
 
-    for article in all_hrefs_articles:  # проходимся по статьям
-        article_name = article.find('span').text  # собираем названия статей
-        article_link = f'https://habr.com{article.get("href")}'  # ссылки на статьи
-        article_dict[article_name] = article_link
+    articles = [
+        {
+            'hub_id': hub.id,
+            'title': article.find('span').text,  # собираем названия статей
+            'url': f'https://habr.com{article.get("href")}'  # ссылки на статьи
+        } for article in all_hrefs_articles
+    ]
 
-    return article_dict
+    return articles
 
 
-def parse_article(raw_article) -> dict:
+def parse_article(raw_article) -> dict | None:
+    """Возвращает статью в виде словаря с ключами: author_name, author_link, publish_date, text"""
     article_dict = {}
 
     soup = BeautifulSoup(raw_article, 'lxml')
 
     author = soup.find('a', class_='tm-user-info__username')
+
+    if not author:
+        return
+
     article_dict['author_name'] = author.text.strip()
     article_dict['author_link'] = f'https://habr.com{author.get("href")}'
 
@@ -76,28 +86,32 @@ def parser(self):
         'user-Agent': ua.google,
     }
 
-    article_dict = parse_main(headers)
+    articles = []
+    hubs = Hub.objects.all()
 
-    titles = article_dict.keys()
-    to_remove = []
-    for title in titles:
-        if Article.objects.filter(title=title).exists():
-            to_remove.append(title)
-    for title in to_remove:
-        del article_dict[title]
+    for hub in hubs:
+        articles.extend(parse_hab(hub, headers))
+
+    parsed_articles = Article.objects.filter(url__in=[article['url'] for article in articles])
+    parsed_urls = [article.url for article in parsed_articles]
+    not_parsed_articles = [article for article in articles if article['url'] not in parsed_urls]
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    raw_articles = loop.run_until_complete(fetch_all(article_dict, loop, headers))
+    raw_articles = loop.run_until_complete(fetch_all(not_parsed_articles, loop, headers))
 
+    done_articles = []
     for raw_article in raw_articles:
         article = parse_article(raw_article['html'])
-        article = Article(
-            title=raw_article['title'],
-            url=raw_article['url'],
-            author_name=article['author_name'],
-            author_link=article['author_link'],
-            publish_date=article['publish_date'],
-            text=article['text']
+        done_articles.append(
+            Article(
+                title=raw_article['title'],
+                url=raw_article['url'],
+                author_name=article['author_name'],
+                author_link=article['author_link'],
+                publish_date=article['publish_date'],
+                text=article['text'],
+                hub_id=raw_article['hub_id'],
+            )
         )
-        article.save()
+    Article.objects.bulk_create(done_articles)

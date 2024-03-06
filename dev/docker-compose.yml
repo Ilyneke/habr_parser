@@ -16,8 +16,20 @@ services:
     depends_on:
       - db
 
-  celery:
-    command: celery -A habr_parser worker -B --loglevel=info -E
+  celery-worker:
+    command: celery -A habr_parser worker --loglevel=info
+    env_file:
+      - ../.env
+    networks:
+      - default
+    depends_on:
+      - web
+      - redis
+    image: backend
+    restart: unless-stopped
+
+  celery-beats:
+    command: celery -A habr_parser beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     env_file:
       - ../.env
     networks:
@@ -39,6 +51,7 @@ services:
     image: postgres:16.2-bullseye
     volumes:
       - postgres_habr_data:/var/lib/postgresql/data/:z
+      - ../dump.sql:/dump.sql
     env_file:
       - ../.env
     ports:
