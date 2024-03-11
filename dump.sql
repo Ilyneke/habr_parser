@@ -31,26 +31,6 @@ COPY public.auth_user (id, password, last_login, is_superuser, username, first_n
 
 
 --
--- Data for Name: django_celery_beat_crontabschedule; Type: TABLE DATA; Schema: public; Owner: postgres
---
-
-COPY public.django_celery_beat_crontabschedule (id, minute, hour, day_of_week, day_of_month, month_of_year, timezone) FROM stdin;
-1	*/10	*	*	*	*	Asia/Yekaterinburg
-2	0	4	*	*	*	Asia/Yekaterinburg
-\.
-
-
---
--- Data for Name: django_celery_beat_periodictask; Type: TABLE DATA; Schema: public; Owner: postgres
---
-
-COPY public.django_celery_beat_periodictask (id, name, task, args, kwargs, queue, exchange, routing_key, expires, enabled, last_run_at, total_run_count, date_changed, description, crontab_id, interval_id, solar_id, one_off, start_time, priority, headers, clocked_id, expire_seconds) FROM stdin;
-2	celery.backend_cleanup	celery.backend_cleanup	[]	{}	\N	\N	\N	\N	t	\N	0	2024-03-06 13:57:02.285903+00		2	\N	\N	f	\N	\N	{}	\N	43200
-1	habr_parse	parser.tasks.parser	[]	{}	\N	\N	\N	\N	t	2024-03-06 15:00:00.00599+00	70	2024-03-06 15:00:35.074457+00		1	\N	\N	f	\N	\N	{}	\N	\N
-\.
-
-
---
 -- Data for Name: parser_hub; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
