@@ -10,19 +10,11 @@ migrate:
 db_restore:
 	$(DOCKER_COMPOSE_CMD) exec -T db psql -U postgres postgres < dump.sql
 
+db_remove:
+	$(DOCKER_COMPOSE_CMD) down --volumes
+
 start:
 	$(DOCKER_COMPOSE_CMD) up -d
 
 stop:
 	$(DOCKER_COMPOSE_CMD) stop
-
-check:
-	@pre-commit run --all-files
-
-init_dev:
-	# @brew install pyenv-virtualenv
-	python3 -m venv .venv
-	@.venv/bin/poetry install --no-root
-
-docker_clean:
-	docker system prune -a
