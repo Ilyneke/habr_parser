@@ -8,7 +8,7 @@ from celery import Celery
 from .models import Article, Hub
 
 
-semaphore = asyncio.Semaphore(5)
+semaphore = asyncio.Semaphore(5)  # указываем максимальное количество асинхронных запросов
 
 
 app = Celery('habr_parser')
@@ -79,6 +79,7 @@ def parse_article(raw_article) -> dict | None:
 
 @app.task(bind=True)
 def parser(self):
+    """Задача"""
     ua = UserAgent()
 
     headers = {
@@ -87,19 +88,23 @@ def parser(self):
     }
 
     articles = []
+    # берем хабы из базы данных
     hubs = Hub.objects.all()
-
+    # и собираем с них названия и ссылки на статьи
     for hub in hubs:
         articles.extend(parse_hab(hub, headers))
 
+    # отбираем статьи которые ранее не парсились
     parsed_articles = Article.objects.filter(url__in=[article['url'] for article in articles])
     parsed_urls = [article.url for article in parsed_articles]
     not_parsed_articles = [article for article in articles if article['url'] not in parsed_urls]
 
+    # асинхронно запрашиваем статьи с хабра
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     raw_articles = loop.run_until_complete(fetch_all(not_parsed_articles, loop, headers))
 
+    # парсим статьи и сохраняем в базу данных
     done_articles = []
     for raw_article in raw_articles:
         article = parse_article(raw_article['html'])
